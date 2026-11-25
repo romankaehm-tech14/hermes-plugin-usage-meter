@@ -1,0 +1,9 @@
+name: usage-meter
+version: 1.0.0
+description: "Live token and cost readout in the Hermes Desktop composer: spend since local midnight across all models, plus the focused chat — read from the session store, no API calls."
+author: Roman K.
+kind: standalone
+platforms:
+  - linux
+  - macos
+  - windows

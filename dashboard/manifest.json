@@ -1,0 +1,10 @@
+{
+  "name": "usage-meter",
+  "label": "Usage Meter",
+  "description": "Live token and cost readout in the Desktop composer: today across all models, and the current chat.",
+  "version": "1.0.0",
+  "icon": "Gauge",
+  "tab": { "path": "/usage-meter", "hidden": true },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}
