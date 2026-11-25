@@ -7,8 +7,9 @@ heute $0,38 · 1,2 Mio Tok   │   Chat $0,05 · 238 k Tok
 ```
 
 * **heute** — alles seit Mitternacht (Europe/Berlin), über **alle Modelle** und alle
-  Sitzungen (Desktop, Telegram, Cron, Web-UI …). Klick auf die Zeile zeigt die
-  Aufschlüsselung pro Modell mit Calls.
+  Sitzungen (Desktop, Telegram, Cron, Web-UI …).
+* **Klick** auf die Zeile schaltet die Detailzeile weiter: pro Modell → Top-Chats
+  des Tages (Titel, Kosten, Tokens, Quelle) → zu.
 * **Chat** — der gerade fokussierte Chat, live aus dem Usage-Stream des Hosts
   (fällt auf die Backend-Abfrage zurück, wenn noch kein Turn gelaufen ist).
 
@@ -17,7 +18,7 @@ heute $0,38 · 1,2 Mio Tok   │   Chat $0,05 · 238 k Tok
 | Pfad | Rolle |
 |---|---|
 | `desktop/plugin.js` | Desktop-Hälfte: `COMPOSER_AREAS.underside`-Chip unter dem Composer |
-| `dashboard/plugin_api.py` | Backend: `GET /api/plugins/usage-meter/today`, `GET …/session/{id}` |
+| `dashboard/plugin_api.py` | Backend: `GET …/today`, `GET …/top`, `GET …/session/{id}` |
 | `dashboard/manifest.json` | Dashboard-Manifest (kein eigener Tab, nur API) |
 | `plugin.yaml` | Plugin-Metadaten (nötig, damit `hermes plugins enable` es findet) |
 
@@ -49,6 +50,7 @@ würde die Zahl jede Aussagekraft verlieren.
 ```
 GET /api/plugins/usage-meter/health
 GET /api/plugins/usage-meter/today?tz=Europe/Berlin
+GET /api/plugins/usage-meter/top?limit=5&tz=Europe/Berlin
 GET /api/plugins/usage-meter/session/{session_id}
 ```
 

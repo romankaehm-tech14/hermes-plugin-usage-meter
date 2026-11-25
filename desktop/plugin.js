@@ -6,7 +6,7 @@
  * Left half: everything spent since local midnight, all models, from the
  * plugin's own backend (dashboard/plugin_api.py -> GET /today).
  * Right half: the focused chat, live from host.state.focusedUsage (no RPC).
- * Click the strip for the per-model breakdown.
+ * Click cycles the detail strip: per-model -> top chats of the day -> closed.
  *
  * Plain ESM, loaded uncompiled: jsx() calls, not JSX syntax.
  */
@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react'
 
 const ID = 'usage-meter'
 const POLL_MS = 30000
+const TOP_N = 5
 
 // ctx.rest is only available inside register(); the component reads it here.
 let rest = null
@@ -61,13 +62,19 @@ function shortModel(m) {
   return s.length > 24 ? `${s.slice(0, 23)}…` : s
 }
 
+function clip(s, n) {
+  const t = String(s || '')
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t
+}
+
 function Meter() {
   const live = useValue(host.state.focusedUsage)
   const storedId = useValue(host.state.focusedStoredSessionId)
   const [today, setToday] = useState(null)
+  const [top, setTop] = useState(null)
   const [sess, setSess] = useState(null)
   const [offline, setOffline] = useState(false)
-  const [open, setOpen] = useState(false)
+  const [mode, setMode] = useState(0) // 0 = zu, 1 = Modelle, 2 = Top-Chats
 
   useEffect(() => {
     let alive = true
@@ -81,6 +88,12 @@ function Meter() {
         }
       } catch (e) {
         if (alive) setOffline(true)
+      }
+      try {
+        const tp = await rest(`/top?limit=${TOP_N}`)
+        if (alive) setTop(tp)
+      } catch (e) {
+        /* backend without /top (older copy) — the chats view stays empty */
       }
       if (storedId) {
         try {
@@ -117,29 +130,58 @@ function Meter() {
   const chatText = sessTotals ? `${fmtCost(sessTotals.cost)} · ${fmtTokens(sessTotals.tokens)} Tok` : '—'
 
   const models = (today && today.by_model) || []
-  const detail = models.length
+  const modelLine = models.length
     ? models
         .map(m => `${shortModel(m.model)}: ${fmtCost(m.cost_usd)} · ${fmtTokens(m.tokens)} Tok · ${Math.round(m.api_calls)} Calls`)
         .join('   ')
     : 'keine Daten'
 
+  const topSessions = (top && top.sessions) || []
+
   const chipClass =
     'inline-flex items-center gap-1 whitespace-nowrap px-1.5 text-[0.6875rem] tabular-nums text-(--ui-text-tertiary) transition-colors hover:text-(--ui-text-secondary)'
+
+  let detail = null
+  if (mode === 1) {
+    detail = jsx('div', {
+      className: 'max-w-full truncate px-2 text-[0.625rem] text-(--ui-text-quaternary)',
+      children: modelLine
+    })
+  } else if (mode === 2) {
+    detail = jsx('div', {
+      className: 'flex w-full max-w-[640px] flex-col gap-px px-2 text-[0.625rem] text-(--ui-text-quaternary)',
+      children: topSessions.length
+        ? topSessions.map((s, i) =>
+            jsxs(
+              'div',
+              {
+                className: 'flex w-full items-baseline gap-1.5',
+                children: [
+                  jsx('span', { className: 'w-3 shrink-0 text-right opacity-60', children: `${i + 1}.` }),
+                  jsx('span', { className: 'min-w-0 flex-1 truncate', children: clip(s.title, 60) }),
+                  jsx('span', {
+                    className: 'shrink-0 tabular-nums',
+                    children: `${fmtCost(s.cost_usd)} · ${fmtTokens(s.tokens)}`
+                  }),
+                  jsx('span', { className: 'w-14 shrink-0 text-right opacity-60', children: s.source })
+                ]
+              },
+              s.session_id
+            )
+          )
+        : jsx('div', { children: 'keine Daten' })
+    })
+  }
 
   return jsxs('div', {
     className: 'flex w-full flex-col items-center gap-0.5 pb-1',
     children: [
-      open
-        ? jsx('div', {
-            className: 'max-w-full truncate px-2 text-[0.625rem] text-(--ui-text-quaternary)',
-            children: detail
-          })
-        : null,
+      detail,
       jsxs('button', {
         type: 'button',
         className: chipClass,
-        title: 'Klick: Aufschlüsselung pro Modell',
-        onClick: () => setOpen(v => !v),
+        title: 'Klick: Modelle → Top-Chats → zu',
+        onClick: () => setMode(m => (m + 1) % 3),
         children: [
           jsx('span', { children: `heute ${dayText}` }),
           jsx('span', { className: 'opacity-40', children: '│' }),

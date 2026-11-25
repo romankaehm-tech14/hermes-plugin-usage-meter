@@ -73,7 +73,12 @@ def _window_start(tz_name: str) -> tuple[float, str]:
     return start.timestamp(), now.date().isoformat()
 
 
-def _aggregate(conn: sqlite3.Connection, start: float) -> dict[str, Any]:
+def _weighted_rows(conn: sqlite3.Connection, start: float) -> list[tuple[sqlite3.Row, float]]:
+    """Every usage row that reaches into the window, paired with its share of the window.
+
+    A row that began before midnight is weighted by the share of its session's
+    messages that fall inside the window; a fully-in-window row counts 1.0.
+    """
     rows = conn.execute(
         """SELECT u.session_id, u.model, u.billing_provider, u.input_tokens, u.output_tokens,
                   u.cache_read_tokens, u.cache_write_tokens, u.reasoning_tokens,
@@ -99,14 +104,20 @@ def _aggregate(conn: sqlite3.Connection, start: float) -> dict[str, Any]:
         total, today = msg_cache[session_id]
         return (today / total) if total else 0.0
 
+    weighted: list[tuple[sqlite3.Row, float]] = []
+    for row in rows:
+        weight = share(row["session_id"], row["first_seen"])
+        if weight > 0:
+            weighted.append((row, weight))
+    return weighted
+
+
+def _aggregate(conn: sqlite3.Connection, start: float) -> dict[str, Any]:
     totals = _empty_totals()
     by_model: dict[tuple[str, str], dict[str, float]] = {}
     sessions: set[str] = set()
     partial = False
-    for row in rows:
-        weight = share(row["session_id"], row["first_seen"])
-        if weight <= 0:
-            continue
+    for row, weight in _weighted_rows(conn, start):
         if weight < 1.0:
             partial = True
         _add(totals, row, weight)
@@ -137,6 +148,38 @@ def today(tz: str = DEFAULT_TZ) -> dict[str, Any]:
     finally:
         conn.close()
     return {"date": day, "tz": tz, "since": start, **data}
+
+
+@router.get("/top")
+def top(limit: int = 10, tz: str = DEFAULT_TZ) -> dict[str, Any]:
+    """The most expensive sessions inside the window, with their titles."""
+    start, day = _window_start(tz)
+    conn = _connect()
+    try:
+        per: dict[str, dict[str, Any]] = {}
+        for row, weight in _weighted_rows(conn, start):
+            bucket = per.setdefault(row["session_id"], {"totals": _empty_totals(), "models": set()})
+            _add(bucket["totals"], row, weight)
+            bucket["models"].add(row["model"] or "unknown")
+        out = []
+        for sid, bucket in per.items():
+            meta = conn.execute(
+                "SELECT title, source FROM sessions WHERE id = ?", (sid,)
+            ).fetchone()
+            t = _finish(bucket["totals"])
+            out.append({
+                "session_id": sid,
+                "title": (meta["title"] if meta and meta["title"] else "(ohne Titel)"),
+                "source": (meta["source"] if meta else ""),
+                "cost_usd": t["cost_usd"],
+                "tokens": t["tokens"],
+                "api_calls": int(t["api_calls"]),
+                "models": sorted(bucket["models"]),
+            })
+    finally:
+        conn.close()
+    out.sort(key=lambda s: s["cost_usd"], reverse=True)
+    return {"date": day, "tz": tz, "sessions": out[: max(1, min(int(limit), 50))]}
 
 
 @router.get("/session/{session_id}")
